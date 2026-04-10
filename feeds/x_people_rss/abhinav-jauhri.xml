@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Abhinav Jauhri - X 搜索占位 RSS</title>
+    <link>https://x.com/search?q=Abhinav%20Jauhri&amp;src=typed_query&amp;f=user</link>
+    <description>Abhinav Jauhri / Meta (FAIR) / 模型评估、安全防御与偏好优化。</description>
+    <language>zh-cn</language>
+    <lastBuildDate>Sat, 11 Apr 2026 00:00:00 +0800</lastBuildDate>
+    <item>
+      <title>Abhinav Jauhri - 待人工确认账号</title>
+      <link>https://x.com/search?q=Abhinav%20Jauhri&amp;src=typed_query&amp;f=user</link>
+      <guid>x-search-abhinav-jauhri</guid>
+      <pubDate>Sat, 11 Apr 2026 00:00:00 +0800</pubDate>
+      <description><![CDATA[
+      这是一条本地生成的占位 RSS。原始链接是 X 用户搜索页，尚未在名单里确认唯一账号。
+      <br><br>人物：Abhinav Jauhri
+      <br>机构 / 背景：Meta (FAIR)
+      <br>方向：模型评估、安全防御与偏好优化。
+      <br>目录分组：强化学习、推理与对齐
+      <br><br>你可以先点开原始搜索页继续人工核对。
+      <br><a href="http://127.0.0.1:5050/people-directory#alignment">返回人物目录</a>
+      ]]></description>
+    </item>
+  </channel>
+</rss>

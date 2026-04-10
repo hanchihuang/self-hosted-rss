@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Mark Lee - X 搜索占位 RSS</title>
+    <link>https://x.com/search?q=Mark%20Lee&amp;src=typed_query&amp;f=user</link>
+    <description>Mark Lee / Meta (MSL) / 前 Apple / 端侧部署与移动端 AI 压缩。</description>
+    <language>zh-cn</language>
+    <lastBuildDate>Sat, 11 Apr 2026 00:00:00 +0800</lastBuildDate>
+    <item>
+      <title>Mark Lee - 待人工确认账号</title>
+      <link>https://x.com/search?q=Mark%20Lee&amp;src=typed_query&amp;f=user</link>
+      <guid>x-search-mark-lee</guid>
+      <pubDate>Sat, 11 Apr 2026 00:00:00 +0800</pubDate>
+      <description><![CDATA[
+      这是一条本地生成的占位 RSS。原始链接是 X 用户搜索页，尚未在名单里确认唯一账号。
+      <br><br>人物：Mark Lee
+      <br>机构 / 背景：Meta (MSL) / 前 Apple
+      <br>方向：端侧部署与移动端 AI 压缩。
+      <br>目录分组：开源生态与模型平民化推手
+      <br><br>你可以先点开原始搜索页继续人工核对。
+      <br><a href="http://127.0.0.1:5050/people-directory#open-source">返回人物目录</a>
+      ]]></description>
+    </item>
+  </channel>
+</rss>

@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>大模型人物清单与 X 名录</title>
+    <link>http://127.0.0.1:5050/people-directory</link>
+    <description>根据提供长文提取并重排的大模型算法工程师、科学家与治理人物名录。</description>
+    <language>zh-cn</language>
+    <lastBuildDate>Sat, 11 Apr 2026 00:00:00 +0800</lastBuildDate>
+
+    <item>
+      <title>Meta / FAIR / MSL 人物清单</title>
+      <link>http://127.0.0.1:5050/people-directory#meta-fair-msl</link>
+      <guid>llm-people-meta-fair-msl</guid>
+      <pubDate>Sat, 11 Apr 2026 00:00:00 +0800</pubDate>
+      <description><![CDATA[涵盖 Yann LeCun、Alexandr Wang、Jack Rae、Soumith Chintala、Shengjia Zhao、Jiahui Yu 等，聚焦开源架构、训练系统、Llama 生态、多模态与治理。]]></description>
+    </item>
+
+    <item>
+      <title>OpenAI / xAI 基础设施与研究负责人</title>
+      <link>http://127.0.0.1:5050/people-directory#openai-xai</link>
+      <guid>llm-people-openai-xai</guid>
+      <pubDate>Sat, 11 Apr 2026 00:00:00 +0800</pubDate>
+      <description><![CDATA[涵盖 Sam Altman、Mark Chen、Jakub Pachocki、Fidji Simo、Angela Fan、Michael Bolin、Uday Ruddarraju 等，聚焦 GPT 战略、多模态、智能体和超大集群。]]></description>
+    </item>
+
+    <item>
+      <title>强化学习、推理与对齐研究者</title>
+      <link>http://127.0.0.1:5050/people-directory#alignment</link>
+      <guid>llm-people-alignment</guid>
+      <pubDate>Sat, 11 Apr 2026 00:00:00 +0800</pubDate>
+      <description><![CDATA[涵盖 Noam Brown、Jason Wei、Joanne Jang、Trapit Bansal、Marie Pellat 等，聚焦测试时计算、思维链、模型行为安全与偏好优化。]]></description>
+    </item>
+
+    <item>
+      <title>DeepSeek 与中国算法社区</title>
+      <link>http://127.0.0.1:5050/people-directory#deepseek</link>
+      <guid>llm-people-deepseek</guid>
+      <pubDate>Sat, 11 Apr 2026 00:00:00 +0800</pubDate>
+      <description><![CDATA[涵盖 Liang Wenfeng、Luo Fuli、Yu Wu、Ming Zhou，聚焦低成本训练、强化学习对齐、知识蒸馏与中国系统算法人才脉络。]]></description>
+    </item>
+
+    <item>
+      <title>长上下文、多模态与稀疏计算</title>
+      <link>http://127.0.0.1:5050/people-directory#multimodal</link>
+      <guid>llm-people-multimodal</guid>
+      <pubDate>Sat, 11 Apr 2026 00:00:00 +0800</pubDate>
+      <description><![CDATA[涵盖 Koray Kavukcuoglu、Oriol Vinyals、Swaroop Mishra、Timothee Lacroix、Diego de Las Casas 等，聚焦超长上下文、多模态融合、MoE 与量化。]]></description>
+    </item>
+
+    <item>
+      <title>智能体、工具调用与应用落地</title>
+      <link>http://127.0.0.1:5050/people-directory#agents</link>
+      <guid>llm-people-agents</guid>
+      <pubDate>Sat, 11 Apr 2026 00:00:00 +0800</pubDate>
+      <description><![CDATA[涵盖 Mike Krieger、Nicholas Carlini、Aidan Gomez、Aravind Srinivas、Richard Socher、Jim Fan、Yejin Choi 等，聚焦智能体、检索增强、AI 搜索与机器人。]]></description>
+    </item>
+
+    <item>
+      <title>开源生态与模型平民化推手</title>
+      <link>http://127.0.0.1:5050/people-directory#open-source</link>
+      <guid>llm-people-open-source</guid>
+      <pubDate>Sat, 11 Apr 2026 00:00:00 +0800</pubDate>
+      <description><![CDATA[涵盖 Francois Chollet、Tim Dettmers、Harrison Chase、Jerry Liu、Daniel Han、Andrej Karpathy、Simon Willison 等，聚焦开源工具链、量化、微调与工程传播。]]></description>
+    </item>
+
+    <item>
+      <title>战略、治理与 AI 安全人物</title>
+      <link>http://127.0.0.1:5050/people-directory#governance</link>
+      <guid>llm-people-governance</guid>
+      <pubDate>Sat, 11 Apr 2026 00:00:00 +0800</pubDate>
+      <description><![CDATA[涵盖 Dario Amodei、Demis Hassabis、Jeff Dean、Ilya Sutskever、Fei-Fei Li、Yoshua Bengio、Geoffrey Hinton、Andrew Ng 等，聚焦战略、治理、安全与科研基础设施。]]></description>
+    </item>
+  </channel>
+</rss>

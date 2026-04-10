@@ -4,6 +4,7 @@ import datetime as dt
 import sqlite3
 import threading
 import time
+import re
 import urllib.request
 import urllib.parse
 import xml.etree.ElementTree as ET
@@ -11,7 +12,7 @@ from pathlib import Path
 
 import feedparser
 from bs4 import BeautifulSoup
-from flask import Flask, flash, redirect, render_template, request, url_for
+from flask import Flask, flash, redirect, render_template, request, send_from_directory, url_for
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -129,6 +130,28 @@ def normalize_tags(tags_text: str) -> str:
     return ", ".join(tags)
 
 
+def canonicalize_entry_link(link: str, feed_row: sqlite3.Row) -> str:
+    if not link:
+        return link
+    parsed = urllib.parse.urlparse(link)
+    host = (parsed.netloc or "").lower()
+    path = parsed.path or ""
+    if host in {"nitter.net", "xcancel.com"}:
+        match = re.match(r"^/([^/]+)/status/(\d+)", path)
+        if match:
+            handle, status_id = match.groups()
+            return f"https://x.com/{handle}/status/{status_id}"
+    if host == "x.com":
+        return link
+    title = (feed_row["title"] or "") if feed_row else ""
+    if title.startswith("X人物 · "):
+        parsed_html = urllib.parse.urlparse(feed_row["html_url"] or "")
+        html_host = (parsed_html.netloc or "").lower()
+        if html_host == "x.com" and "/status/" not in parsed_html.path:
+            return feed_row["html_url"]
+    return link
+
+
 def list_all_tags() -> list[str]:
     conn = get_conn()
     rows = conn.execute("SELECT tags FROM feeds WHERE tags != ''").fetchall()
@@ -201,6 +224,7 @@ def refresh_feed(feed_row: sqlite3.Row) -> tuple[int, str | None]:
         )
         title = entry.get("title", "Untitled entry")
         link = entry.get("link", feed_row["html_url"] or feed_row["xml_url"])
+        link = canonicalize_entry_link(link, feed_row)
         author = entry.get("author", "")
         published = entry.get("published", "") or entry.get("updated", "")
         summary = entry.get("summary", "") or entry.get("description", "")
@@ -404,6 +428,11 @@ def feed_detail(feed_id: int):
         flash("未找到对应订阅源。", "error")
         return redirect(url_for("index"))
     return render_template("feed_detail.html", feed=feed, entries=entries, stats=get_stats())
+
+
+@app.route("/people-directory")
+def people_directory():
+    return send_from_directory(BASE_DIR / "feeds", "llm_people_directory.html")
 
 
 @app.post("/refresh")
