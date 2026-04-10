@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}RSS Reader{% endblock %}</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --ink: #1f2937;
+      --muted: #6b7280;
+      --line: #e5e7eb;
+      --accent: #2563eb;
+      --accent-soft: #eff6ff;
+      --good: #047857;
+      --bad: #b91c1c;
+      --gold: #d97706;
+      --shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: linear-gradient(180deg, #eff4ff 0%, #f6f8fc 100%);
+      color: var(--ink);
+      font-family: "Inter", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    .page {
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 24px 18px 40px;
+    }
+    .hero {
+      background: linear-gradient(135deg, #0f172a, #2563eb);
+      color: white;
+      border-radius: 24px;
+      padding: 28px 24px;
+      box-shadow: var(--shadow);
+    }
+    .hero h1 {
+      margin: 0 0 10px;
+      font-size: 30px;
+    }
+    .hero p {
+      margin: 0;
+      color: rgba(255,255,255,0.86);
+      max-width: 820px;
+      line-height: 1.7;
+    }
+    .layout, .panel {
+      margin-top: 18px;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 18px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+      padding: 18px;
+    }
+    .stats {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 16px;
+    }
+    .chip {
+      background: rgba(255,255,255,0.12);
+      border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-size: 13px;
+    }
+    .tag-chip {
+      display: inline-flex;
+      border-radius: 999px;
+      padding: 5px 10px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      margin: 4px 6px 0 0;
+      font-size: 12px;
+    }
+    h2 {
+      margin: 0 0 12px;
+      font-size: 20px;
+    }
+    h3 {
+      margin: 0 0 10px;
+      font-size: 16px;
+    }
+    .feed-list, .entry-list, .tag-list {
+      display: grid;
+      gap: 10px;
+    }
+    .feed-item, .entry-item {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px 14px;
+      background: #fff;
+    }
+    .feed-item:hover, .entry-item:hover {
+      border-color: #c7d2fe;
+      background: #fcfdff;
+    }
+    .feed-meta, .entry-meta {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+      margin-top: 6px;
+    }
+    .entry-title {
+      font-weight: 700;
+      font-size: 16px;
+      line-height: 1.5;
+    }
+    .entry-summary {
+      margin-top: 8px;
+      color: #374151;
+      line-height: 1.7;
+      font-size: 14px;
+    }
+    form {
+      display: grid;
+      gap: 10px;
+    }
+    input[type="text"],
+    input[type="number"],
+    textarea {
+      width: 100%;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      padding: 12px;
+      font: inherit;
+      background: #fff;
+    }
+    textarea {
+      min-height: 140px;
+      resize: vertical;
+    }
+    .inline-form {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .inline-form form {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+    }
+    button {
+      border: 0;
+      border-radius: 12px;
+      background: var(--accent);
+      color: white;
+      padding: 11px 14px;
+      font: inherit;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    button.secondary {
+      background: #111827;
+    }
+    button.favorite {
+      background: var(--gold);
+    }
+    button:hover {
+      filter: brightness(1.05);
+    }
+    .muted {
+      color: var(--muted);
+    }
+    .flash-wrap {
+      display: grid;
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .flash {
+      padding: 12px 14px;
+      border-radius: 14px;
+      font-size: 14px;
+    }
+    .flash.success {
+      background: #ecfdf5;
+      color: var(--good);
+      border: 1px solid #bbf7d0;
+    }
+    .flash.error {
+      background: #fef2f2;
+      color: var(--bad);
+      border: 1px solid #fecaca;
+    }
+    .subtle-link {
+      display: inline-block;
+      margin-top: 8px;
+      font-size: 13px;
+    }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    .row form {
+      margin: 0;
+    }
+    @media (max-width: 900px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+      .hero h1 {
+        font-size: 26px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="hero">
+      <h1>本地 RSS 阅读器</h1>
+      <p>支持 OPML 导入、搜索、标签过滤、文章收藏和后台定时自动刷新。默认已预置 Hacker News 2025 热门博客订阅列表。</p>
+      {% if stats %}
+      <div class="stats">
+        <span class="chip">订阅源 {{ stats.feed_count }}</span>
+        <span class="chip">文章缓存 {{ stats.entry_count }}</span>
+        <span class="chip">收藏 {{ stats.favorite_count }}</span>
+        <span class="chip">自动刷新 {% if stats.scheduler_enabled == '1' %}开启{% else %}关闭{% endif %}</span>
+        <span class="chip">间隔 {{ stats.scheduler_interval_minutes }} 分钟</span>
+        <span class="chip">地址 http://127.0.0.1:5050</span>
+      </div>
+      {% endif %}
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+      <div class="flash-wrap">
+        {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>

@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+app.log
+rss_reader.db
+feeds/imported.opml

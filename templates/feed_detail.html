@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}{{ feed.title }} - RSS Reader{% endblock %}
+{% block content %}
+<div class="panel">
+  <h2>{{ feed.title }}</h2>
+  <div class="feed-meta">
+    <div>RSS：<a href="{{ feed.xml_url }}" target="_blank" rel="noreferrer">{{ feed.xml_url }}</a></div>
+    {% if feed.html_url %}
+    <div>网站：<a href="{{ feed.html_url }}" target="_blank" rel="noreferrer">{{ feed.html_url }}</a></div>
+    {% endif %}
+    {% if feed.tags %}
+    <div>当前标签：{{ feed.tags }}</div>
+    {% endif %}
+    <div class="subtle-link"><a href="{{ url_for('index') }}">返回首页</a></div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>管理标签</h2>
+  <form method="post" action="{{ url_for('update_feed_tags', feed_id=feed.id) }}">
+    <input type="text" name="tags" value="{{ feed.tags }}" placeholder="例如：ai, robotics, security" />
+    <button type="submit">保存标签</button>
+  </form>
+</div>
+
+<div class="panel">
+  <h2>文章列表</h2>
+  <div class="entry-list">
+    {% for entry in entries %}
+    <div class="entry-item">
+      <div class="row">
+        <div class="entry-title">
+          <a href="{{ entry.link }}" target="_blank" rel="noreferrer">{{ entry.title }}</a>
+        </div>
+        <form method="post" action="{{ url_for('toggle_favorite', entry_id=entry.id) }}">
+          <button type="submit" class="favorite">
+            {% if entry.is_favorite %}已收藏{% else %}收藏{% endif %}
+          </button>
+        </form>
+      </div>
+      <div class="entry-meta">
+        {% if entry.author %}{{ entry.author }}{% endif %}
+        {% if entry.published %} · {{ entry.published }}{% endif %}
+      </div>
+      {% if entry.summary %}
+      <div class="entry-summary">{{ entry.summary }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

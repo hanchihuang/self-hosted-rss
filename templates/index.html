@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}RSS Reader{% endblock %}
+{% block content %}
+<div class="layout">
+  <div>
+    <div class="panel">
+      <h2>操作</h2>
+      <form method="post" action="{{ url_for('refresh') }}">
+        <button type="submit">刷新全部订阅</button>
+      </form>
+      <div class="subtle-link"><a href="{{ url_for('favorites') }}">只看收藏</a></div>
+      <p class="muted">首次刷新会花几分钟，因为需要抓取全部源并建立缓存。</p>
+    </div>
+
+    <div class="panel">
+      <h2>搜索</h2>
+      <form method="get" action="{{ url_for('index') }}">
+        <input type="text" name="q" value="{{ current_q }}" placeholder="搜索标题、摘要、作者、来源" />
+        {% if current_tag %}
+        <input type="hidden" name="tag" value="{{ current_tag }}" />
+        {% endif %}
+        {% if favorites_only %}
+        <input type="hidden" name="favorites" value="1" />
+        {% endif %}
+        <button type="submit">搜索文章</button>
+      </form>
+    </div>
+
+    <div class="panel">
+      <h2>后台自动刷新</h2>
+      <form method="post" action="{{ url_for('update_scheduler_settings') }}">
+        <label class="inline-form">
+          <input type="checkbox" name="scheduler_enabled" {% if stats.scheduler_enabled == '1' %}checked{% endif %}>
+          <span>开启自动刷新</span>
+        </label>
+        <input type="number" min="1" name="scheduler_interval_minutes" value="{{ stats.scheduler_interval_minutes }}" />
+        <button type="submit">保存调度设置</button>
+      </form>
+    </div>
+
+    <div class="panel">
+      <h2>导入 OPML</h2>
+      <form method="post" action="{{ url_for('import_opml_route') }}">
+        <textarea name="opml_content" placeholder="把 OPML 内容粘贴到这里"></textarea>
+        <button type="submit">导入订阅源</button>
+      </form>
+    </div>
+
+    <div class="panel">
+      <h2>标签</h2>
+      <div class="tag-list">
+        <a class="feed-item" href="{{ url_for('index') }}">
+          <strong>全部文章</strong>
+        </a>
+        {% for tag in all_tags %}
+        <a class="feed-item" href="{{ url_for('index', tag=tag) }}">
+          <strong>#{{ tag }}</strong>
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>订阅源</h2>
+      <div class="feed-list">
+        {% for feed in feeds %}
+        <a class="feed-item" href="{{ url_for('feed_detail', feed_id=feed.id) }}">
+          <div><strong>{{ feed.title }}</strong></div>
+          <div class="feed-meta">
+            {{ feed.entry_count }} 篇缓存
+            {% if feed.last_fetched_at %}
+            · 上次刷新 {{ feed.last_fetched_at }}
+            {% endif %}
+            {% if feed.tags %}
+            <br>标签：{{ feed.tags }}
+            {% endif %}
+            {% if feed.last_error %}
+            <br>错误：{{ feed.last_error }}
+            {% endif %}
+          </div>
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="row">
+      <div>
+        <h2>
+          文章流
+          {% if current_tag %} · 标签 #{{ current_tag }}{% endif %}
+          {% if current_q %} · 搜索 “{{ current_q }}”{% endif %}
+          {% if favorites_only %} · 收藏{% endif %}
+        </h2>
+      </div>
+      <div class="muted">{{ entries|length }} 篇</div>
+    </div>
+    <div class="entry-list">
+      {% for entry in entries %}
+      <div class="entry-item">
+        <div class="row">
+          <div class="entry-title">
+            <a href="{{ entry.link }}" target="_blank" rel="noreferrer">{{ entry.title }}</a>
+          </div>
+          <form method="post" action="{{ url_for('toggle_favorite', entry_id=entry.id) }}">
+            <button type="submit" class="favorite">
+              {% if entry.is_favorite %}已收藏{% else %}收藏{% endif %}
+            </button>
+          </form>
+        </div>
+        <div class="entry-meta">
+          来自 {{ entry.feed_title }}
+          {% if entry.author %} · {{ entry.author }}{% endif %}
+          {% if entry.published %} · {{ entry.published }}{% endif %}
+        </div>
+        {% if entry.feed_tags %}
+        <div>
+          {% for tag in entry.feed_tags.split(',') if tag.strip() %}
+          <a class="tag-chip" href="{{ url_for('index', tag=tag.strip()) }}">#{{ tag.strip() }}</a>
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% if entry.summary %}
+        <div class="entry-summary">{{ entry.summary }}</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}
