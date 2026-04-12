@@ -126,6 +126,7 @@ def init_db() -> None:
         conn.execute(
             "ALTER TABLE entries ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0"
         )
+    normalize_cached_entry_links(conn)
     conn.commit()
     conn.close()
 
@@ -187,6 +188,32 @@ def canonicalize_entry_link(link: str, feed_row: sqlite3.Row) -> str:
         if html_host == "x.com" and "/status/" not in parsed_html.path:
             return feed_row["html_url"]
     return link
+
+
+def normalize_cached_entry_links(conn: sqlite3.Connection) -> int:
+    rows = conn.execute(
+        """
+        SELECT
+            e.id AS entry_pk,
+            e.link AS entry_link,
+            f.title AS title,
+            f.html_url AS html_url
+        FROM entries e
+        JOIN feeds f ON e.feed_id = f.id
+        WHERE e.link LIKE 'http://nitter.net/%/status/%'
+           OR e.link LIKE 'https://nitter.net/%/status/%'
+           OR e.link LIKE 'http://xcancel.com/%/status/%'
+           OR e.link LIKE 'https://xcancel.com/%/status/%'
+        """
+    ).fetchall()
+    updates = []
+    for row in rows:
+        new_link = canonicalize_entry_link(row["entry_link"], row)
+        if new_link != row["entry_link"]:
+            updates.append((new_link, row["entry_pk"]))
+    if updates:
+        conn.executemany("UPDATE entries SET link = ? WHERE id = ?", updates)
+    return len(updates)
 
 
 def list_all_tags() -> list[str]:
