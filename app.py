@@ -677,8 +677,8 @@ def build_daily_summary_html(summary_date: str, entries: list[sqlite3.Row]) -> s
       <h2>{title}</h2>
       <p class="daily-lead">昨日共抓取到 <strong>{len(entries)}</strong> 篇资讯，其中 <strong>{selected_count}</strong> 篇被判定为可能帮助算法工程师提高实验效果。筛选标准是：是否能转化为模型对照、评测改进、上下文/记忆消融、真实场景泛化或工程可靠性动作。</p>
       {source_meta}
-      {''.join(topic_cards)}
       {experiment_actions}
+      {''.join(topic_cards)}
     </article>
     """
 
