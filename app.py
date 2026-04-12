@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import email.utils
 import sqlite3
 import threading
 import time
@@ -29,7 +30,43 @@ _scheduler_started = False
 def get_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.create_function("entry_date", 2, entry_date)
     return conn
+
+
+def entry_date(published: str | None, created_at: str | None) -> str:
+    for value in (published, created_at):
+        normalized = parse_date_value(value)
+        if normalized:
+            return normalized
+    return ""
+
+
+def parse_date_value(value: str | None) -> str:
+    if not value:
+        return ""
+    text = value.strip()
+    if not text:
+        return ""
+    try:
+        return dt.datetime.fromisoformat(text.replace("Z", "+00:00")).date().isoformat()
+    except ValueError:
+        pass
+    try:
+        parsed = email.utils.parsedate_to_datetime(text)
+    except (TypeError, ValueError):
+        return ""
+    return parsed.date().isoformat()
+
+
+def normalize_date_filter(value: str) -> str:
+    value = value.strip()
+    if not value:
+        return ""
+    try:
+        return dt.date.fromisoformat(value).isoformat()
+    except ValueError:
+        return ""
 
 
 def init_db() -> None:
@@ -324,6 +361,8 @@ def query_entries(
     q: str = "",
     tag: str = "",
     favorites_only: bool = False,
+    start_date: str = "",
+    end_date: str = "",
     limit: int = 120,
 ) -> list[sqlite3.Row]:
     conn = get_conn()
@@ -343,6 +382,12 @@ def query_entries(
         params.append(f"%{tag.lower()}%")
     if favorites_only:
         sql += " AND e.is_favorite = 1"
+    if start_date:
+        sql += " AND entry_date(e.published, e.created_at) >= ?"
+        params.append(start_date)
+    if end_date:
+        sql += " AND entry_date(e.published, e.created_at) <= ?"
+        params.append(end_date)
     sql += """
         ORDER BY COALESCE(NULLIF(e.published, ''), e.created_at) DESC, e.id DESC
         LIMIT ?
@@ -358,6 +403,8 @@ def index():
     q = request.args.get("q", "").strip()
     tag = request.args.get("tag", "").strip().lower()
     favorites_only = request.args.get("favorites") == "1"
+    start_date = normalize_date_filter(request.args.get("start_date", ""))
+    end_date = normalize_date_filter(request.args.get("end_date", ""))
 
     conn = get_conn()
     feeds = conn.execute(
@@ -374,12 +421,20 @@ def index():
     return render_template(
         "index.html",
         feeds=feeds,
-        entries=query_entries(q=q, tag=tag, favorites_only=favorites_only),
+        entries=query_entries(
+            q=q,
+            tag=tag,
+            favorites_only=favorites_only,
+            start_date=start_date,
+            end_date=end_date,
+        ),
         stats=get_stats(),
         all_tags=list_all_tags(),
         current_q=q,
         current_tag=tag,
         favorites_only=favorites_only,
+        current_start_date=start_date,
+        current_end_date=end_date,
     )
 
 
@@ -406,6 +461,8 @@ def favorites():
         current_q="",
         current_tag="",
         favorites_only=True,
+        current_start_date="",
+        current_end_date="",
     )
 
 

@@ -19,11 +19,43 @@
         {% if current_tag %}
         <input type="hidden" name="tag" value="{{ current_tag }}" />
         {% endif %}
+        {% if current_start_date %}
+        <input type="hidden" name="start_date" value="{{ current_start_date }}" />
+        {% endif %}
+        {% if current_end_date %}
+        <input type="hidden" name="end_date" value="{{ current_end_date }}" />
+        {% endif %}
         {% if favorites_only %}
         <input type="hidden" name="favorites" value="1" />
         {% endif %}
         <button type="submit">搜索文章</button>
       </form>
+    </div>
+
+    <div class="panel">
+      <h2>日期筛选</h2>
+      <form method="get" action="{{ url_for('index') }}">
+        <label>
+          <span class="muted">开始日期</span>
+          <input type="date" name="start_date" value="{{ current_start_date }}" />
+        </label>
+        <label>
+          <span class="muted">结束日期</span>
+          <input type="date" name="end_date" value="{{ current_end_date }}" />
+        </label>
+        {% if current_q %}
+        <input type="hidden" name="q" value="{{ current_q }}" />
+        {% endif %}
+        {% if current_tag %}
+        <input type="hidden" name="tag" value="{{ current_tag }}" />
+        {% endif %}
+        {% if favorites_only %}
+        <input type="hidden" name="favorites" value="1" />
+        {% endif %}
+        <button type="submit">按日期筛选</button>
+      </form>
+      <div class="subtle-link"><a href="{{ url_for('index', q=current_q, tag=current_tag, favorites='1' if favorites_only else None) }}">清除日期筛选</a></div>
+      <p class="muted">按文章发布时间筛选；如果源没有发布时间，则回退到缓存创建时间。</p>
     </div>
 
     <div class="panel">
@@ -53,7 +85,7 @@
           <strong>全部文章</strong>
         </a>
         {% for tag in all_tags %}
-        <a class="feed-item" href="{{ url_for('index', tag=tag) }}">
+        <a class="feed-item" href="{{ url_for('index', tag=tag, q=current_q, start_date=current_start_date, end_date=current_end_date, favorites='1' if favorites_only else None) }}">
           <strong>#{{ tag }}</strong>
         </a>
         {% endfor %}
@@ -91,6 +123,9 @@
           文章流
           {% if current_tag %} · 标签 #{{ current_tag }}{% endif %}
           {% if current_q %} · 搜索 “{{ current_q }}”{% endif %}
+          {% if current_start_date or current_end_date %}
+          · 日期 {{ current_start_date or '不限' }} 至 {{ current_end_date or '不限' }}
+          {% endif %}
           {% if favorites_only %} · 收藏{% endif %}
         </h2>
       </div>
@@ -117,7 +152,7 @@
         {% if entry.feed_tags %}
         <div>
           {% for tag in entry.feed_tags.split(',') if tag.strip() %}
-          <a class="tag-chip" href="{{ url_for('index', tag=tag.strip()) }}">#{{ tag.strip() }}</a>
+          <a class="tag-chip" href="{{ url_for('index', tag=tag.strip(), q=current_q, start_date=current_start_date, end_date=current_end_date, favorites='1' if favorites_only else None) }}">#{{ tag.strip() }}</a>
           {% endfor %}
         </div>
         {% endif %}
