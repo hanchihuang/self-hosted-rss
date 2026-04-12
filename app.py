@@ -128,7 +128,7 @@ def init_db() -> None:
     )
     conn.execute(
         "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-        ("daily_summary_hour", "12"),
+        ("daily_summary_hour", "0"),
     )
     conn.execute(
         """
@@ -479,49 +479,125 @@ def query_entries_for_date(summary_date: str, limit: int = 500) -> list[sqlite3.
     return rows
 
 
-def summarize_entries_by_topic(entries: list[sqlite3.Row]) -> list[dict[str, object]]:
-    topic_rules = [
-        ("Agent 与工具链", ("agent", "harness", "memory", "langchain", "openclaw", "codex", "claude")),
-        ("模型与产品发布", ("model", "muse", "spark", "grok", "minimax", "openai", "meta ai", "gemini")),
-        ("机器人与自动驾驶", ("robot", "robotic", "waymo", "fsd", "tesla", "optimus", "unitree")),
-        ("航天与连接基础设施", ("spacex", "starlink", "falcon", "starship", "nasa", "mars")),
-        ("安全与产业观察", ("security", "cyber", "attack", "vulnerability", "business", "startup")),
-    ]
-    buckets: dict[str, list[sqlite3.Row]] = {name: [] for name, _ in topic_rules}
-    buckets["其它值得关注"] = []
-    for entry in entries:
-        haystack = " ".join(
-            [
-                entry["title"] or "",
-                entry["summary"] or "",
-                entry["feed_title"] or "",
-                entry["feed_tags"] or "",
-                entry["author"] or "",
-            ]
-        ).lower()
-        matched = False
-        for name, keywords in topic_rules:
-            if any(keyword in haystack for keyword in keywords):
-                buckets[name].append(entry)
-                matched = True
-                break
-        if not matched:
-            buckets["其它值得关注"].append(entry)
-    topics = []
-    for name, rows in buckets.items():
-        if not rows:
+EXPERIMENT_HELP_TOPICS = [
+    {
+        "name": "Agent 记忆与上下文工程",
+        "keywords": (
+            "agent", "harness", "memory", "context", "retrieval", "langchain",
+            "deepagents", "openclaw", "codex", "claude", "compaction",
+        ),
+        "help": "适合转化为 memory 写入策略、上下文压缩、检索注入时机和 harness 归属的消融实验。",
+    },
+    {
+        "name": "评测与基准验证",
+        "keywords": (
+            "benchmark", "eval", "ifbench", "terminal bench", "swe-pro", "test",
+            "comparison", "5 year old", "score", "fraudulent", "submission",
+        ),
+        "help": "适合补强回归集、任务成功率、人工复核与基准防作弊检查，避免只看单一榜单分数。",
+    },
+    {
+        "name": "模型与开源工具对照",
+        "keywords": (
+            "model", "grok", "minimax", "open source", "hugging face", "muse",
+            "meta ai", "claude", "openai", "gemini", "m2.7", "spark",
+        ),
+        "help": "适合做模型替换实验、能力/成本/延迟对照，以及开源模型在具体任务上的迁移验证。",
+    },
+    {
+        "name": "数据与真实场景泛化",
+        "keywords": (
+            "robot", "robotic", "fsd", "waymo", "tesla", "real-world", "data",
+            "unitree", "autonomous", "manipulation", "starlink", "video",
+        ),
+        "help": "适合提醒实验设计纳入真实扰动、长尾样本、OOD 场景和从演示到稳定上线的差距。",
+    },
+    {
+        "name": "工程化、可靠性与安全",
+        "keywords": (
+            "security", "ssrf", "stability", "api", "provider", "local", "teams",
+            "voice", "tool", "privacy", "startup", "reliability", "docs",
+        ),
+        "help": "适合改进实验平台可复现性、权限边界、工具调用日志和本地/云端依赖隔离。",
+    },
+]
+
+EXPERIMENT_HELP_TAG_BOOSTS = (
+    "langchain", "openai", "post-training-core", "tools", "engineering",
+    "formal-methods", "google-deepmind", "nvidia", "xai", "anthropic",
+)
+
+
+def entry_haystack(entry: sqlite3.Row) -> str:
+    return " ".join(
+        [
+            entry["title"] or "",
+            entry["summary"] or "",
+            entry["feed_title"] or "",
+            entry["feed_tags"] or "",
+            entry["author"] or "",
+        ]
+    ).lower()
+
+
+def score_experiment_help(entry: sqlite3.Row) -> tuple[int, str, list[str]]:
+    haystack = entry_haystack(entry)
+    best_score = 0
+    best_topic = "其它"
+    best_matches: list[str] = []
+    for topic in EXPERIMENT_HELP_TOPICS:
+        matches = [keyword for keyword in topic["keywords"] if keyword in haystack]
+        if not matches:
             continue
-        topics.append({"name": name, "entries": rows[:8], "count": len(rows)})
-    return topics
+        score = len(matches) * 2
+        if any(tag in haystack for tag in EXPERIMENT_HELP_TAG_BOOSTS):
+            score += 2
+        if "rt by" not in (entry["title"] or "").lower():
+            score += 1
+        if score > best_score:
+            best_score = score
+            best_topic = topic["name"]
+            best_matches = matches
+    return best_score, best_topic, best_matches
+
+
+def summarize_entries_for_experiment_help(entries: list[sqlite3.Row]) -> tuple[list[dict[str, object]], int]:
+    buckets: dict[str, list[dict[str, object]]] = {
+        topic["name"]: [] for topic in EXPERIMENT_HELP_TOPICS
+    }
+    for entry in entries:
+        score, topic_name, matches = score_experiment_help(entry)
+        if score <= 0 or topic_name not in buckets:
+            continue
+        buckets[topic_name].append({"entry": entry, "score": score, "matches": matches})
+
+    topics: list[dict[str, object]] = []
+    for topic in EXPERIMENT_HELP_TOPICS:
+        rows = sorted(
+            buckets[topic["name"]],
+            key=lambda item: (int(item["score"]), item["entry"]["published"] or ""),
+            reverse=True,
+        )
+        if rows:
+            topics.append(
+                {
+                    "name": topic["name"],
+                    "help": topic["help"],
+                    "entries": rows[:5],
+                    "count": len(rows),
+                }
+            )
+    selected_count = sum(topic["count"] for topic in topics)
+    return topics, selected_count
 
 
 def build_daily_summary_html(summary_date: str, entries: list[sqlite3.Row]) -> str:
-    topics = summarize_entries_by_topic(entries)
-    title = f"{summary_date} AI 资讯日报"
+    topics, selected_count = summarize_entries_for_experiment_help(entries)
+    title = f"{summary_date} 实验效果提升日报"
     if not entries:
         return f"""
         <article class="daily-article">
-          <div class="daily-kicker">每日 12 点自动生成</div>
+          <div class="daily-kicker">每日 00:00 自动生成 · 面向算法工程师</div>
           <h2>{title}</h2>
           <p>前一天没有筛选到带发布时间的资讯条目。</p>
         </article>
@@ -534,23 +610,26 @@ def build_daily_summary_html(summary_date: str, entries: list[sqlite3.Row]) -> s
         f"{html.escape(name, quote=False)} {count} 篇"
         for name, count in sorted(top_sources.items(), key=lambda item: item[1], reverse=True)[:5]
     )
+    source_meta = f'<p class="daily-meta">主要来源：{source_text}</p>' if source_text else ""
+
     topic_cards = []
-    for topic in topics[:6]:
-        rows = topic["entries"]
+    for topic in topics:
         items = []
-        for entry in rows[:5]:
+        for item in topic["entries"]:
+            entry = item["entry"]
             summary = entry["summary"] or ""
-            if len(summary) > 150:
-                summary = summary[:150] + "..."
+            if len(summary) > 140:
+                summary = summary[:140] + "..."
             safe_link = html.escape(entry["link"] or "", quote=True)
             safe_title = html.escape(entry["title"] or "Untitled", quote=False)
             safe_feed_title = html.escape(entry["feed_title"] or "", quote=False)
             safe_summary = html.escape(summary, quote=False)
+            safe_matches = html.escape("、".join(item["matches"][:5]), quote=False)
             items.append(
                 f"""
                 <li>
                   <a href="{safe_link}" target="_blank" rel="noreferrer">{safe_title}</a>
-                  <span>来自 {safe_feed_title}</span>
+                  <span>来自 {safe_feed_title} · 命中：{safe_matches}</span>
                   {f"<p>{safe_summary}</p>" if summary else ""}
                 </li>
                 """
@@ -559,20 +638,49 @@ def build_daily_summary_html(summary_date: str, entries: list[sqlite3.Row]) -> s
             f"""
             <section class="daily-topic">
               <h3>{topic['name']} <small>{topic['count']} 篇</small></h3>
+              <p>{html.escape(topic['help'], quote=False)}</p>
               <ul>{''.join(items)}</ul>
             </section>
             """
         )
-    return f"""
-    <article class="daily-article">
-      <div class="daily-kicker">每日 12 点自动生成</div>
-      <h2>{title}</h2>
-      <p class="daily-lead">昨日共抓取到 <strong>{len(entries)}</strong> 篇资讯。信息流的主线集中在 Agent 工具链、模型产品更新、机器人/自动驾驶、航天连接基础设施与安全产业观察。下面按主题做编辑式归纳，便于快速浏览。</p>
-      <p class="daily-meta">主要来源：{source_text}</p>
-      {''.join(topic_cards)}
-    </article>
+
+    if not topic_cards:
+        topic_cards.append(
+            """
+            <section class="daily-topic">
+              <h3>没有高相关实验线索</h3>
+              <p>昨日资讯里没有明显指向实验设计、模型对照、评测或工程可靠性的内容；建议只做浏览，不投入实验排期。</p>
+            </section>
+            """
+        )
+
+    experiment_actions = """
+      <section class="daily-topic">
+        <h3>今日可执行实验清单</h3>
+        <ul>
+          <li>把 agent memory 拆成写入策略、检索策略、压缩策略三组消融，分别记录成功率、token 成本和人工判分。</li>
+          <li>为关键任务建立最小回归集：固定输入、固定工具权限、固定评分脚本，避免只凭单次 demo 判断效果。</li>
+          <li>做模型/ harness 解耦实验：同一 harness 下替换模型，同一模型下替换 memory 与 retrieval，定位收益来源。</li>
+          <li>记录完整实验日志：prompt、模型版本、memory 命中、retrieval 结果、tool call、输出、评分和失败原因。</li>
+          <li>对真实场景样本单独建桶：长尾、噪声、权限异常、超长上下文和工具失败都要进入验证集。</li>
+        </ul>
+      </section>
+      <section class="daily-topic">
+        <h3>不建议优先投入实验排期</h3>
+        <p>航天、政治争议、品牌宣传和纯观点转发如果没有可复现实验变量，今天只作为背景信息，不应占用算法实验资源。</p>
+      </section>
     """
 
+    return f"""
+    <article class="daily-article">
+      <div class="daily-kicker">每日 00:00 自动生成 · 面向算法工程师</div>
+      <h2>{title}</h2>
+      <p class="daily-lead">昨日共抓取到 <strong>{len(entries)}</strong> 篇资讯，其中 <strong>{selected_count}</strong> 篇被判定为可能帮助算法工程师提高实验效果。筛选标准是：是否能转化为模型对照、评测改进、上下文/记忆消融、真实场景泛化或工程可靠性动作。</p>
+      {source_meta}
+      {''.join(topic_cards)}
+      {experiment_actions}
+    </article>
+    """
 
 def generate_daily_summary(summary_date: dt.date) -> sqlite3.Row:
     summary_date_text = summary_date.isoformat()
@@ -580,7 +688,7 @@ def generate_daily_summary(summary_date: dt.date) -> sqlite3.Row:
         raise RuntimeError("日报生成任务已在运行。")
     try:
         entries = query_entries_for_date(summary_date_text, limit=800)
-        title = f"{summary_date_text} AI 资讯日报"
+        title = f"{summary_date_text} 实验效果提升日报"
         html_content = build_daily_summary_html(summary_date_text, entries)
         created_at = local_now().isoformat()
         conn = get_conn()
@@ -619,7 +727,7 @@ def generate_daily_summary(summary_date: dt.date) -> sqlite3.Row:
 
 
 def should_generate_daily_summary(now: dt.datetime) -> dt.date | None:
-    summary_hour = max(min(int(get_setting("daily_summary_hour", "12")), 23), 0)
+    summary_hour = max(min(int(get_setting("daily_summary_hour", "0")), 23), 0)
     if now.hour < summary_hour:
         return None
     target_date = now.date() - dt.timedelta(days=1)
@@ -704,7 +812,7 @@ def get_scheduler_status() -> dict[str, str]:
         "last_refresh_failed": get_setting("scheduler_last_refresh_failed", "0"),
         "next_refresh_at": get_setting("scheduler_next_refresh_at", ""),
         "last_error": get_setting("scheduler_last_error", ""),
-        "daily_summary_hour": get_setting("daily_summary_hour", "12"),
+        "daily_summary_hour": get_setting("daily_summary_hour", "0"),
         "daily_summary_last_date": get_setting("daily_summary_last_date", ""),
         "daily_summary_last_created_at": get_setting("daily_summary_last_created_at", ""),
         "daily_summary_last_error": get_setting("daily_summary_last_error", ""),
@@ -951,7 +1059,7 @@ def toggle_favorite(entry_id: int):
 def update_scheduler_settings():
     enabled = "1" if request.form.get("scheduler_enabled") == "on" else "0"
     interval = request.form.get("scheduler_interval_minutes", "30").strip()
-    summary_hour = request.form.get("daily_summary_hour", "12").strip()
+    summary_hour = request.form.get("daily_summary_hour", "0").strip()
     try:
         interval_value = max(int(interval), 1)
     except ValueError:

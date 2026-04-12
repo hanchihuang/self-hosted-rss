@@ -5,7 +5,7 @@
 <div class="summary-panel">
   <div class="summary-panel-header">
     <div>
-      <h2>昨日资讯公众号文章</h2>
+      <h2>昨日实验效果提升公众号文章</h2>
       <div class="muted">
         发布时间日期：{{ latest_summary.summary_date }}
         · 条目 {{ latest_summary.entry_count }}
@@ -13,7 +13,7 @@
       </div>
     </div>
     <form method="post" action="{{ url_for('generate_yesterday_summary_route') }}">
-      <button type="submit" class="secondary">重新生成昨日日报</button>
+      <button type="submit" class="secondary">重新生成实验日报</button>
     </form>
   </div>
   {{ latest_summary.html_content|safe }}
@@ -22,11 +22,11 @@
 <div class="summary-panel">
   <div class="summary-panel-header">
     <div>
-      <h2>昨日资讯公众号文章</h2>
-      <div class="muted">还没有日报。每天 {{ scheduler_status.daily_summary_hour }}:00 后会自动生成前一天资讯总结。</div>
+      <h2>昨日实验效果提升公众号文章</h2>
+      <div class="muted">还没有日报。每天 00:00 后会自动生成前一天适合算法工程师提升实验效果的资讯总结。</div>
     </div>
     <form method="post" action="{{ url_for('generate_yesterday_summary_route') }}">
-      <button type="submit" class="secondary">立即生成昨日日报</button>
+      <button type="submit" class="secondary">立即生成实验日报</button>
     </form>
   </div>
 </div>
@@ -98,7 +98,7 @@
         </label>
         <input type="number" min="1" name="scheduler_interval_minutes" value="{{ stats.scheduler_interval_minutes }}" />
         <label>
-          <span class="muted">每日资讯总结小时（0-23）</span>
+          <span class="muted">每日资讯总结小时（0-23，0 表示凌晨 12 点）</span>
           <input type="number" min="0" max="23" name="daily_summary_hour" value="{{ scheduler_status.daily_summary_hour }}" />
         </label>
         <button type="submit">保存调度设置</button>
