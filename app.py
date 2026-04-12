@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import datetime as dt
 import email.utils
+import html
+import concurrent.futures
 import sqlite3
 import threading
 import time
@@ -25,10 +27,12 @@ app.secret_key = "rss-reader-local-secret"
 
 _scheduler_lock = threading.Lock()
 _scheduler_started = False
+_refresh_lock = threading.Lock()
+_summary_lock = threading.Lock()
 
 
 def get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.create_function("entry_date", 2, entry_date)
     return conn
@@ -103,6 +107,15 @@ def init_db() -> None:
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS daily_summaries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            summary_date TEXT NOT NULL UNIQUE,
+            title TEXT NOT NULL,
+            html_content TEXT NOT NULL,
+            entry_count INTEGER NOT NULL,
+            created_at TEXT NOT NULL
+        );
         """
     )
     conn.execute(
@@ -112,6 +125,17 @@ def init_db() -> None:
     conn.execute(
         "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
         ("scheduler_interval_minutes", "30"),
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+        ("daily_summary_hour", "12"),
+    )
+    conn.execute(
+        """
+        INSERT INTO settings (key, value) VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        """,
+        ("scheduler_refresh_running", "0"),
     )
     feed_columns = {
         row["name"] for row in conn.execute("PRAGMA table_info(feeds)").fetchall()
@@ -149,6 +173,36 @@ def set_setting(key: str, value: str) -> None:
     )
     conn.commit()
     conn.close()
+
+
+def set_settings(values: dict[str, str]) -> None:
+    conn = get_conn()
+    conn.executemany(
+        """
+        INSERT INTO settings (key, value) VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        """,
+        values.items(),
+    )
+    conn.commit()
+    conn.close()
+
+
+def local_now() -> dt.datetime:
+    return dt.datetime.now().replace(microsecond=0)
+
+
+def utc_now_iso() -> str:
+    return dt.datetime.now(dt.UTC).replace(tzinfo=None, microsecond=0).isoformat()
+
+
+def parse_local_datetime(value: str) -> dt.datetime | None:
+    if not value:
+        return None
+    try:
+        return dt.datetime.fromisoformat(value)
+    except ValueError:
+        return None
 
 
 def extract_text(html: str, limit: int = 280) -> str:
@@ -234,7 +288,7 @@ def import_opml(opml_path: Path) -> int:
     imported = 0
     conn = get_conn()
     outlines = root.findall(".//outline[@xmlUrl]")
-    now = dt.datetime.utcnow().isoformat()
+    now = utc_now_iso()
     for outline in outlines:
         title = outline.attrib.get("title") or outline.attrib.get("text") or "Untitled Feed"
         xml_url = outline.attrib["xmlUrl"].strip()
@@ -266,7 +320,7 @@ def refresh_feed(feed_row: sqlite3.Row) -> tuple[int, str | None]:
         feed_row["xml_url"],
         headers={"User-Agent": "LocalRSSReader/1.0 (+https://localhost)"},
     )
-    with urllib.request.urlopen(req, timeout=12) as response:
+    with urllib.request.urlopen(req, timeout=8) as response:
         raw = response.read()
     parsed = feedparser.parse(raw)
 
@@ -277,7 +331,7 @@ def refresh_feed(feed_row: sqlite3.Row) -> tuple[int, str | None]:
 
     conn = get_conn()
     added = 0
-    now = dt.datetime.utcnow().isoformat()
+    now = utc_now_iso()
 
     for entry in parsed.entries:
         entry_id = (
@@ -320,41 +374,341 @@ def refresh_all_feeds() -> tuple[int, int]:
     conn.close()
     total_added = 0
     failed = 0
-    for feed in feeds:
+
+    def _refresh_one(feed: sqlite3.Row) -> tuple[int, int]:
         try:
             added, error = refresh_feed(feed)
-            total_added += added
             if error:
-                failed += 1
                 conn = get_conn()
                 conn.execute(
                     "UPDATE feeds SET last_error = ?, last_fetched_at = ? WHERE id = ?",
-                    (error, dt.datetime.utcnow().isoformat(), feed["id"]),
+                    (error, utc_now_iso(), feed["id"]),
                 )
                 conn.commit()
                 conn.close()
+                return added, 1
+            return added, 0
         except Exception as exc:  # noqa: BLE001
-            failed += 1
             conn = get_conn()
             conn.execute(
                 "UPDATE feeds SET last_error = ?, last_fetched_at = ? WHERE id = ?",
-                (str(exc), dt.datetime.utcnow().isoformat(), feed["id"]),
+                (str(exc), utc_now_iso(), feed["id"]),
             )
             conn.commit()
             conn.close()
+            return 0, 1
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        futures = [executor.submit(_refresh_one, feed) for feed in feeds]
+        for future in concurrent.futures.as_completed(futures):
+            added, feed_failed = future.result()
+            total_added += added
+            failed += feed_failed
     return total_added, failed
+
+
+def run_refresh_job(trigger: str = "scheduled") -> tuple[int, int, str | None]:
+    if not _refresh_lock.acquire(blocking=False):
+        return 0, 0, "刷新任务已在运行，已跳过本次触发。"
+    started_at = local_now()
+    set_settings(
+        {
+            "scheduler_refresh_running": "1",
+            "scheduler_last_refresh_started_at": started_at.isoformat(),
+            "scheduler_last_refresh_trigger": trigger,
+            "scheduler_last_error": "",
+        }
+    )
+    try:
+        added, failed = refresh_all_feeds()
+        finished_at = local_now()
+        interval = max(int(get_setting("scheduler_interval_minutes", "30")), 1)
+        set_settings(
+            {
+                "scheduler_refresh_running": "0",
+                "scheduler_last_refresh_finished_at": finished_at.isoformat(),
+                "scheduler_last_refresh_added": str(added),
+                "scheduler_last_refresh_failed": str(failed),
+                "scheduler_next_refresh_at": (
+                    finished_at + dt.timedelta(minutes=interval)
+                ).isoformat(),
+                "scheduler_last_error": "",
+            }
+        )
+        return added, failed, None
+    except Exception as exc:  # noqa: BLE001
+        finished_at = local_now()
+        set_settings(
+            {
+                "scheduler_refresh_running": "0",
+                "scheduler_last_refresh_finished_at": finished_at.isoformat(),
+                "scheduler_last_error": str(exc),
+            }
+        )
+        return 0, 0, str(exc)
+    finally:
+        _refresh_lock.release()
+
+
+def should_run_refresh(now: dt.datetime) -> bool:
+    if get_setting("scheduler_enabled", "1") != "1":
+        return False
+    interval = max(int(get_setting("scheduler_interval_minutes", "30")), 1)
+    last_finished = parse_local_datetime(
+        get_setting("scheduler_last_refresh_finished_at", "")
+    )
+    if last_finished is None:
+        return True
+    return now >= last_finished + dt.timedelta(minutes=interval)
+
+
+def query_entries_for_date(summary_date: str, limit: int = 500) -> list[sqlite3.Row]:
+    conn = get_conn()
+    rows = conn.execute(
+        """
+        SELECT e.*, f.title AS feed_title, f.tags AS feed_tags
+        FROM entries e
+        JOIN feeds f ON e.feed_id = f.id
+        WHERE entry_date(e.published, e.created_at) = ?
+        ORDER BY COALESCE(NULLIF(e.published, ''), e.created_at) DESC, e.id DESC
+        LIMIT ?
+        """,
+        (summary_date, limit),
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+def summarize_entries_by_topic(entries: list[sqlite3.Row]) -> list[dict[str, object]]:
+    topic_rules = [
+        ("Agent 与工具链", ("agent", "harness", "memory", "langchain", "openclaw", "codex", "claude")),
+        ("模型与产品发布", ("model", "muse", "spark", "grok", "minimax", "openai", "meta ai", "gemini")),
+        ("机器人与自动驾驶", ("robot", "robotic", "waymo", "fsd", "tesla", "optimus", "unitree")),
+        ("航天与连接基础设施", ("spacex", "starlink", "falcon", "starship", "nasa", "mars")),
+        ("安全与产业观察", ("security", "cyber", "attack", "vulnerability", "business", "startup")),
+    ]
+    buckets: dict[str, list[sqlite3.Row]] = {name: [] for name, _ in topic_rules}
+    buckets["其它值得关注"] = []
+    for entry in entries:
+        haystack = " ".join(
+            [
+                entry["title"] or "",
+                entry["summary"] or "",
+                entry["feed_title"] or "",
+                entry["feed_tags"] or "",
+                entry["author"] or "",
+            ]
+        ).lower()
+        matched = False
+        for name, keywords in topic_rules:
+            if any(keyword in haystack for keyword in keywords):
+                buckets[name].append(entry)
+                matched = True
+                break
+        if not matched:
+            buckets["其它值得关注"].append(entry)
+    topics = []
+    for name, rows in buckets.items():
+        if not rows:
+            continue
+        topics.append({"name": name, "entries": rows[:8], "count": len(rows)})
+    return topics
+
+
+def build_daily_summary_html(summary_date: str, entries: list[sqlite3.Row]) -> str:
+    topics = summarize_entries_by_topic(entries)
+    title = f"{summary_date} AI 资讯日报"
+    if not entries:
+        return f"""
+        <article class="daily-article">
+          <div class="daily-kicker">每日 12 点自动生成</div>
+          <h2>{title}</h2>
+          <p>前一天没有筛选到带发布时间的资讯条目。</p>
+        </article>
+        """
+
+    top_sources: dict[str, int] = {}
+    for entry in entries:
+        top_sources[entry["feed_title"]] = top_sources.get(entry["feed_title"], 0) + 1
+    source_text = "、".join(
+        f"{html.escape(name, quote=False)} {count} 篇"
+        for name, count in sorted(top_sources.items(), key=lambda item: item[1], reverse=True)[:5]
+    )
+    topic_cards = []
+    for topic in topics[:6]:
+        rows = topic["entries"]
+        items = []
+        for entry in rows[:5]:
+            summary = entry["summary"] or ""
+            if len(summary) > 150:
+                summary = summary[:150] + "..."
+            safe_link = html.escape(entry["link"] or "", quote=True)
+            safe_title = html.escape(entry["title"] or "Untitled", quote=False)
+            safe_feed_title = html.escape(entry["feed_title"] or "", quote=False)
+            safe_summary = html.escape(summary, quote=False)
+            items.append(
+                f"""
+                <li>
+                  <a href="{safe_link}" target="_blank" rel="noreferrer">{safe_title}</a>
+                  <span>来自 {safe_feed_title}</span>
+                  {f"<p>{safe_summary}</p>" if summary else ""}
+                </li>
+                """
+            )
+        topic_cards.append(
+            f"""
+            <section class="daily-topic">
+              <h3>{topic['name']} <small>{topic['count']} 篇</small></h3>
+              <ul>{''.join(items)}</ul>
+            </section>
+            """
+        )
+    return f"""
+    <article class="daily-article">
+      <div class="daily-kicker">每日 12 点自动生成</div>
+      <h2>{title}</h2>
+      <p class="daily-lead">昨日共抓取到 <strong>{len(entries)}</strong> 篇资讯。信息流的主线集中在 Agent 工具链、模型产品更新、机器人/自动驾驶、航天连接基础设施与安全产业观察。下面按主题做编辑式归纳，便于快速浏览。</p>
+      <p class="daily-meta">主要来源：{source_text}</p>
+      {''.join(topic_cards)}
+    </article>
+    """
+
+
+def generate_daily_summary(summary_date: dt.date) -> sqlite3.Row:
+    summary_date_text = summary_date.isoformat()
+    if not _summary_lock.acquire(blocking=False):
+        raise RuntimeError("日报生成任务已在运行。")
+    try:
+        entries = query_entries_for_date(summary_date_text, limit=800)
+        title = f"{summary_date_text} AI 资讯日报"
+        html_content = build_daily_summary_html(summary_date_text, entries)
+        created_at = local_now().isoformat()
+        conn = get_conn()
+        conn.execute(
+            """
+            INSERT INTO daily_summaries
+            (summary_date, title, html_content, entry_count, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(summary_date) DO UPDATE SET
+                title = excluded.title,
+                html_content = excluded.html_content,
+                entry_count = excluded.entry_count,
+                created_at = excluded.created_at
+            """,
+            (summary_date_text, title, html_content, len(entries), created_at),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM daily_summaries WHERE summary_date = ?",
+            (summary_date_text,),
+        ).fetchone()
+        conn.close()
+        set_settings(
+            {
+                "daily_summary_last_date": summary_date_text,
+                "daily_summary_last_created_at": created_at,
+                "daily_summary_last_error": "",
+            }
+        )
+        return row
+    except Exception as exc:  # noqa: BLE001
+        set_setting("daily_summary_last_error", str(exc))
+        raise
+    finally:
+        _summary_lock.release()
+
+
+def should_generate_daily_summary(now: dt.datetime) -> dt.date | None:
+    summary_hour = max(min(int(get_setting("daily_summary_hour", "12")), 23), 0)
+    if now.hour < summary_hour:
+        return None
+    target_date = now.date() - dt.timedelta(days=1)
+    if get_setting("daily_summary_last_date", "") == target_date.isoformat():
+        return None
+    return target_date
+
+
+def get_latest_daily_summary() -> sqlite3.Row | None:
+    conn = get_conn()
+    row = conn.execute(
+        """
+        SELECT *
+        FROM daily_summaries
+        ORDER BY summary_date DESC
+        LIMIT 1
+        """
+    ).fetchone()
+    conn.close()
+    return row
 
 
 def scheduler_loop() -> None:
     while True:
-        enabled = get_setting("scheduler_enabled", "1") == "1"
-        interval = max(int(get_setting("scheduler_interval_minutes", "30")), 1)
-        if enabled:
-            try:
-                refresh_all_feeds()
-            except Exception:
-                pass
-        time.sleep(interval * 60)
+        now = local_now()
+        try:
+            if should_run_refresh(now):
+                run_refresh_job(trigger="scheduled")
+            summary_date = should_generate_daily_summary(local_now())
+            if summary_date:
+                generate_daily_summary(summary_date)
+        except Exception as exc:  # noqa: BLE001
+            set_setting("scheduler_last_error", str(exc))
+        time.sleep(30)
+
+
+def run_startup_jobs() -> None:
+    if should_run_refresh(local_now()):
+        threading.Thread(
+            target=run_refresh_job,
+            kwargs={"trigger": "startup"},
+            daemon=True,
+        ).start()
+    summary_date = should_generate_daily_summary(local_now())
+    if summary_date:
+        try:
+            generate_daily_summary(summary_date)
+        except Exception:
+            pass
+
+
+def scheduler_bootstrap() -> None:
+    run_startup_jobs()
+    scheduler_loop()
+
+
+def ensure_scheduler_status() -> None:
+    interval = max(int(get_setting("scheduler_interval_minutes", "30")), 1)
+    last_finished = parse_local_datetime(
+        get_setting("scheduler_last_refresh_finished_at", "")
+    )
+    if not get_setting("scheduler_next_refresh_at", "") and last_finished:
+        set_setting(
+            "scheduler_next_refresh_at",
+            (last_finished + dt.timedelta(minutes=interval)).isoformat(),
+        )
+
+
+def force_daily_summary_for_yesterday() -> dt.date:
+    target_date = local_now().date() - dt.timedelta(days=1)
+    generate_daily_summary(target_date)
+    return target_date
+
+
+def get_scheduler_status() -> dict[str, str]:
+    ensure_scheduler_status()
+    return {
+        "refresh_running": get_setting("scheduler_refresh_running", "0"),
+        "last_refresh_started_at": get_setting("scheduler_last_refresh_started_at", ""),
+        "last_refresh_finished_at": get_setting("scheduler_last_refresh_finished_at", ""),
+        "last_refresh_added": get_setting("scheduler_last_refresh_added", "0"),
+        "last_refresh_failed": get_setting("scheduler_last_refresh_failed", "0"),
+        "next_refresh_at": get_setting("scheduler_next_refresh_at", ""),
+        "last_error": get_setting("scheduler_last_error", ""),
+        "daily_summary_hour": get_setting("daily_summary_hour", "12"),
+        "daily_summary_last_date": get_setting("daily_summary_last_date", ""),
+        "daily_summary_last_created_at": get_setting("daily_summary_last_created_at", ""),
+        "daily_summary_last_error": get_setting("daily_summary_last_error", ""),
+    }
 
 
 def start_scheduler() -> None:
@@ -362,7 +716,7 @@ def start_scheduler() -> None:
     with _scheduler_lock:
         if _scheduler_started:
             return
-        thread = threading.Thread(target=scheduler_loop, daemon=True)
+        thread = threading.Thread(target=scheduler_bootstrap, daemon=True)
         thread.start()
         _scheduler_started = True
 
@@ -462,6 +816,8 @@ def index():
         favorites_only=favorites_only,
         current_start_date=start_date,
         current_end_date=end_date,
+        latest_summary=get_latest_daily_summary(),
+        scheduler_status=get_scheduler_status(),
     )
 
 
@@ -490,6 +846,8 @@ def favorites():
         favorites_only=True,
         current_start_date="",
         current_end_date="",
+        latest_summary=get_latest_daily_summary(),
+        scheduler_status=get_scheduler_status(),
     )
 
 
@@ -521,9 +879,23 @@ def people_directory():
 
 @app.post("/refresh")
 def refresh():
-    added, failed = refresh_all_feeds()
+    added, failed, error = run_refresh_job(trigger="manual")
+    if error:
+        flash(f"刷新未完成：{error}", "error")
+        return redirect(request.referrer or url_for("index"))
     flash(f"刷新完成：新增 {added} 篇，失败 {failed} 个源。", "success")
     return redirect(request.referrer or url_for("index"))
+
+
+@app.post("/summaries/generate-yesterday")
+def generate_yesterday_summary_route():
+    try:
+        summary_date = force_daily_summary_for_yesterday()
+    except Exception as exc:  # noqa: BLE001
+        flash(f"日报生成失败：{exc}", "error")
+        return redirect(request.referrer or url_for("index"))
+    flash(f"{summary_date.isoformat()} 日报已生成。", "success")
+    return redirect(url_for("index"))
 
 
 @app.post("/import-opml")
@@ -579,14 +951,31 @@ def toggle_favorite(entry_id: int):
 def update_scheduler_settings():
     enabled = "1" if request.form.get("scheduler_enabled") == "on" else "0"
     interval = request.form.get("scheduler_interval_minutes", "30").strip()
+    summary_hour = request.form.get("daily_summary_hour", "12").strip()
     try:
         interval_value = max(int(interval), 1)
     except ValueError:
         flash("刷新间隔必须是正整数分钟。", "error")
         return redirect(url_for("index"))
+    try:
+        summary_hour_value = max(min(int(summary_hour), 23), 0)
+    except ValueError:
+        flash("日报生成小时必须是 0 到 23 的整数。", "error")
+        return redirect(url_for("index"))
 
-    set_setting("scheduler_enabled", enabled)
-    set_setting("scheduler_interval_minutes", str(interval_value))
+    last_finished = parse_local_datetime(
+        get_setting("scheduler_last_refresh_finished_at", "")
+    )
+    values = {
+        "scheduler_enabled": enabled,
+        "scheduler_interval_minutes": str(interval_value),
+        "daily_summary_hour": str(summary_hour_value),
+    }
+    if last_finished:
+        values["scheduler_next_refresh_at"] = (
+            last_finished + dt.timedelta(minutes=interval_value)
+        ).isoformat()
+    set_settings(values)
     flash("后台自动刷新设置已保存。", "success")
     return redirect(url_for("index"))
 

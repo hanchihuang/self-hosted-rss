@@ -1,6 +1,37 @@
 {% extends "base.html" %}
 {% block title %}RSS Reader{% endblock %}
 {% block content %}
+{% if latest_summary %}
+<div class="summary-panel">
+  <div class="summary-panel-header">
+    <div>
+      <h2>昨日资讯公众号文章</h2>
+      <div class="muted">
+        发布时间日期：{{ latest_summary.summary_date }}
+        · 条目 {{ latest_summary.entry_count }}
+        · 生成 {{ latest_summary.created_at }}
+      </div>
+    </div>
+    <form method="post" action="{{ url_for('generate_yesterday_summary_route') }}">
+      <button type="submit" class="secondary">重新生成昨日日报</button>
+    </form>
+  </div>
+  {{ latest_summary.html_content|safe }}
+</div>
+{% else %}
+<div class="summary-panel">
+  <div class="summary-panel-header">
+    <div>
+      <h2>昨日资讯公众号文章</h2>
+      <div class="muted">还没有日报。每天 {{ scheduler_status.daily_summary_hour }}:00 后会自动生成前一天资讯总结。</div>
+    </div>
+    <form method="post" action="{{ url_for('generate_yesterday_summary_route') }}">
+      <button type="submit" class="secondary">立即生成昨日日报</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
 <div class="layout">
   <div>
     <div class="panel">
@@ -66,8 +97,34 @@
           <span>开启自动刷新</span>
         </label>
         <input type="number" min="1" name="scheduler_interval_minutes" value="{{ stats.scheduler_interval_minutes }}" />
+        <label>
+          <span class="muted">每日资讯总结小时（0-23）</span>
+          <input type="number" min="0" max="23" name="daily_summary_hour" value="{{ scheduler_status.daily_summary_hour }}" />
+        </label>
         <button type="submit">保存调度设置</button>
       </form>
+      <div class="feed-meta">
+        刷新状态：{% if scheduler_status.refresh_running == '1' %}正在刷新{% else %}空闲{% endif %}
+        {% if scheduler_status.last_refresh_finished_at %}
+        <br>上次完成：{{ scheduler_status.last_refresh_finished_at }}
+        · 新增 {{ scheduler_status.last_refresh_added }}
+        · 失败 {{ scheduler_status.last_refresh_failed }}
+        {% endif %}
+        {% if scheduler_status.next_refresh_at %}
+        <br>下次刷新：{{ scheduler_status.next_refresh_at }}
+        {% else %}
+        <br>下次刷新：等待首次后台刷新完成后计算
+        {% endif %}
+        {% if scheduler_status.daily_summary_last_date %}
+        <br>上次日报：{{ scheduler_status.daily_summary_last_date }} · {{ scheduler_status.daily_summary_last_created_at }}
+        {% endif %}
+        {% if scheduler_status.last_error %}
+        <br>刷新错误：{{ scheduler_status.last_error }}
+        {% endif %}
+        {% if scheduler_status.daily_summary_last_error %}
+        <br>日报错误：{{ scheduler_status.daily_summary_last_error }}
+        {% endif %}
+      </div>
     </div>
 
     <div class="panel">
